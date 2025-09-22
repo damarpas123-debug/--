@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>My Money Tracker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      display: flex;
+      justify-content: center;
+      padding: 40px;
+      transition: background 0.3s, color 0.3s;
+    }
+    .container {
+      width: 550px;
+      background: #fff;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      transition: background 0.3s;
+    }
+    h2 {
+      text-align: center;
+      color: #0066cc;
+    }
+    .balance {
+      text-align: center;
+      margin: 20px 0;
+      font-size: 1.3rem;
+      font-weight: bold;
+    }
+    .accounts {
+      margin: 15px 0;
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 6px;
+    }
+    .account-item {
+      margin: 5px 0;
+      display: flex;
+      justify-content: space-between;
+      font-weight: bold;
+    }
+    form input, form select, form button {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    button {
+      background: #0066cc;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+      padding: 8px;
+      margin-top: 5px;
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+    li {
+      background: #f9f9f9;
+      margin: 5px 0;
+      padding: 10px;
+      border-left: 5px solid;
+      display: flex;
+      justify-content: space-between;
+    }
+    .plus { border-color: green; }
+    .minus { border-color: red; }
+    .delete-btn {
+      background: none;
+      border: none;
+      color: red;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    /* Dark mode */
+    body.dark {
+      background: #121212;
+      color: #eee;
+    }
+    body.dark .container {
+      background: #1e1e1e;
+    }
+    body.dark li { background: #2a2a2a; }
+    body.dark .accounts { background: #2a2a2a; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>My Money Tracker</h2>
+    <button id="toggleDark">🌙 Toggle Dark Mode</button>
+
+    <div class="balance">
+      Total Balance: Rp <span id="balance">0</span>
+    </div>
+
+    <!-- Progress bar -->
+    <div style="margin: 15px 0;">
+      <label>Balance Progress (Target Rp 10.000.000):</label>
+      <div style="background:#ddd; border-radius:20px; overflow:hidden; height:20px;">
+        <div id="progress" style="background:#0066cc; width:0%; height:100%;"></div>
+      </div>
+    </div>
+
+    <!-- Daftar rekening / e-wallet -->
+    <div class="accounts" id="accounts"></div>
+
+    <form id="form">
+      <input type="text" id="text" placeholder="Description" required>
+      <input type="number" id="amount" placeholder="Amount (+/-)" required>
+      <select id="account" required>
+        <option value="BankJago">🏦 BankJago</option>
+        <option value="SeaBank">🏦 SeaBank</option>
+        <option value="OVO">💜 OVO</option>
+        <option value="GoPay">💙 GoPay</option>
+        <option value="Dana">💎 Dana</option>
+        <option value="ShopeePay">🟠 ShopeePay</option>
+      </select>
+      <button type="submit">Add Transaction</button>
+    </form>
+
+    <ul id="list"></ul>
+
+    <!-- Chart -->
+    <canvas id="chart" width="400" height="200"></canvas>
+  </div>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script>
+    const balance = document.getElementById("balance");
+    const accountsDiv = document.getElementById("accounts");
+    const list = document.getElementById("list");
+    const form = document.getElementById("form");
+    const text = document.getElementById("text");
+    const amount = document.getElementById("amount");
+    const accountSelect = document.getElementById("account");
+    const progress = document.getElementById("progress");
+
+    let transactions = JSON.parse(localStorage.getItem("transactions")) || [];
+    let chart;
+
+    function updateValues() {
+      const amounts = transactions.map(t => t.amount);
+      const total = amounts.reduce((a,b) => a+b, 0).toFixed(2);
+      balance.innerText = total;
+
+      // Progress bar
+      const target = 10000000;
+      const percent = Math.min((total / target) * 100, 100);
+      progress.style.width = percent + "%";
+
+      // Hitung per rekening
+      const accountBalances = {};
+      transactions.forEach(t => {
+        if(!accountBalances[t.account]) accountBalances[t.account] = 0;
+        accountBalances[t.account] += t.amount;
+      });
+
+      accountsDiv.innerHTML = "<h4>Rekening & E-Wallet</h4>";
+      for(const acc in accountBalances){
+        accountsDiv.innerHTML += `<div class="account-item">${acc}: Rp ${accountBalances[acc].toFixed(2)}</div>`;
+      }
+
+      updateChart();
+    }
+
+    function addTransactionDOM(transaction) {
+      const sign = transaction.amount < 0 ? "-" : "+";
+      const item = document.createElement("li");
+      item.classList.add(transaction.amount < 0 ? "minus" : "plus");
+      item.innerHTML = `
+        ${transaction.text} [${transaction.account}] 
+        <span>${sign}Rp${Math.abs(transaction.amount)}</span>
+        <button class="delete-btn" onclick="removeTransaction(${transaction.id})">x</button>
+      `;
+      list.appendChild(item);
+    }
+
+    function addTransaction(e) {
+      e.preventDefault();
+      const trans = {
+        id: Date.now(),
+        text: text.value,
+        amount: +amount.value,
+        account: accountSelect.value
+      };
+      transactions.push(trans);
+      saveData();
+      addTransactionDOM(trans);
+      updateValues();
+      text.value = "";
+      amount.value = "";
+    }
+
+    function removeTransaction(id) {
+      transactions = transactions.filter(t => t.id !== id);
+      saveData();
+      init();
+    }
+
+    function saveData(){
+      localStorage.setItem("transactions", JSON.stringify(transactions));
+    }
+
+    function init() {
+      list.innerHTML = "";
+      transactions.forEach(addTransactionDOM);
+      updateValues();
+    }
+
+    // Chart
+    function updateChart() {
+      const income = transactions.filter(t => t.amount > 0)
+                     .reduce((a,b)=>a+b.amount, 0);
+      const expense = transactions.filter(t => t.amount < 0)
+                     .reduce((a,b)=>a+Math.abs(b.amount), 0);
+
+      const ctx = document.getElementById('chart').getContext('2d');
+      if(chart) chart.destroy(); // reset chart
+
+      chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Income', 'Expense'],
+          datasets: [{
+            data: [income, expense],
+            backgroundColor: ['#4CAF50','#E53935']
+          }]
+        }
+      });
+    }
+
+    // Dark mode
+    document.getElementById("toggleDark").addEventListener("click", () => {
+      document.body.classList.toggle("dark");
+    });
+
+    form.addEventListener("submit", addTransaction);
+    init();
+  </script>
+</body>
+</html>
